@@ -15,6 +15,9 @@ sys.modules["dotenv"] = mock_dotenv
 mock_pypdf = MagicMock()
 sys.modules["pypdf"] = mock_pypdf
 
+mock_redis = MagicMock()
+sys.modules["redis"] = mock_redis
+
 os.environ["GEMINI_API_KEY"] = "fake_key"
 os.environ["ONYX_HOST"] = "localhost"
 os.environ["ONYX_PORT"] = "8080"
@@ -301,6 +304,116 @@ class TestRAGFlow(unittest.TestCase):
         mock_instance.search.return_value = []
         hits = kb.search([0.1] * 768, threshold=0.7)
         self.assertEqual(len(hits), 0)
+
+
+# =====================================================================
+# Test: Cache Invalidation
+# =====================================================================
+
+class TestCacheInvalidation(unittest.TestCase):
+
+    @patch('onyx_provider.OnyxClient')
+    def test_onyx_cache_clear_all(self, MockOnyxClient):
+        """OnyxCache.clear_all should delete and recreate the collection."""
+        from onyx_provider import OnyxCache
+        mock_instance = MockOnyxClient.return_value
+        cache = OnyxCache()
+
+        cache.clear_all()
+        mock_instance.delete_collection.assert_called_once_with(name="gemini_semantic_cache")
+        # Should recreate after delete
+        self.assertEqual(mock_instance.create_collection.call_count, 2)  # init + clear_all
+
+
+# =====================================================================
+# Test: Metrics
+# =====================================================================
+
+class TestMetrics(unittest.TestCase):
+
+    def test_metrics_dict_structure(self):
+        from rag_routes import _metrics
+        expected_keys = {
+            "total_queries", "l1_hits", "l2_hits", "rag_hits",
+            "cache_misses", "total_latency_ms",
+            "total_documents", "total_chunks_ingested"
+        }
+        self.assertEqual(set(_metrics.keys()), expected_keys)
+
+    def test_metrics_initial_values_are_zero(self):
+        from rag_routes import _metrics
+        for key, value in _metrics.items():
+            self.assertEqual(value, 0 if isinstance(value, int) else 0.0,
+                f"Metric '{key}' should start at 0")
+
+
+# =====================================================================
+# Test: Batch Embedding
+# =====================================================================
+
+class TestBatchEmbedding(unittest.TestCase):
+
+    def test_get_embeddings_batch_calls_genai(self):
+        from gemini_utils import get_embeddings_batch
+        texts = ["hello", "world", "test"]
+
+        # Mock genai.embed_content to return fake embeddings
+        mock_genai.embed_content.return_value = {
+            'embedding': [[0.1] * 768, [0.2] * 768, [0.3] * 768]
+        }
+
+        results = get_embeddings_batch(texts)
+        self.assertEqual(len(results), 3)
+        mock_genai.embed_content.assert_called()
+
+    def test_get_embeddings_batch_handles_multiple_batches(self):
+        from gemini_utils import get_embeddings_batch, EMBEDDING_BATCH_SIZE
+
+        # Create more texts than one batch
+        n = EMBEDDING_BATCH_SIZE + 5
+        texts = [f"text {i}" for i in range(n)]
+
+        # Mock to return correct number of embeddings per batch
+        def fake_embed(model, content, task_type):
+            return {'embedding': [[0.1] * 768] * len(content)}
+
+        mock_genai.embed_content.reset_mock()
+        mock_genai.embed_content.side_effect = fake_embed
+
+        results = get_embeddings_batch(texts)
+        self.assertEqual(len(results), n)
+        # Should be called twice (one full batch + one partial)
+        self.assertEqual(mock_genai.embed_content.call_count, 2)
+
+        mock_genai.embed_content.side_effect = None  # reset
+
+    def test_get_embeddings_batch_empty(self):
+        from gemini_utils import get_embeddings_batch
+        results = get_embeddings_batch([])
+        self.assertEqual(results, [])
+
+
+# =====================================================================
+# Test: Configurable Chunking
+# =====================================================================
+
+class TestConfigurableChunking(unittest.TestCase):
+
+    def test_custom_child_size(self):
+        text = "Word. " * 300  # ~1800 chars
+        results_small = chunk_document(text, child_size=100, parent_size=2000, overlap=20)
+        results_large = chunk_document(text, child_size=500, parent_size=2000, overlap=20)
+        # Smaller child_size = more chunks
+        self.assertGreater(len(results_small), len(results_large))
+
+    def test_custom_parent_size(self):
+        text = "Sentence here. " * 500  # ~7500 chars
+        results_small_parent = chunk_document(text, child_size=200, parent_size=500, overlap=30)
+        results_large_parent = chunk_document(text, child_size=200, parent_size=3000, overlap=30)
+        # Smaller parent = more distinct parents
+        parents_small = set(r.parent_text for r in results_small_parent)
+        parents_large = set(r.parent_text for r in results_large_parent)
+        self.assertGreaterEqual(len(parents_small), len(parents_large))
 
 
 if __name__ == '__main__':

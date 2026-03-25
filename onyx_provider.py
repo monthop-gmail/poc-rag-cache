@@ -68,3 +68,15 @@ class OnyxCache:
             if top_hit.score >= threshold:
                 return top_hit.payload.get("response")
         return None
+
+    def clear_all(self):
+        """Clear all entries in the semantic cache."""
+        try:
+            self.client.delete_collection(name=self.collection_name)
+            self.client.create_collection(
+                name=self.collection_name,
+                dimension=768,
+                metric="cosine"
+            )
+        except Exception:
+            pass
