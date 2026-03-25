@@ -73,9 +73,8 @@ python3 -m pytest app/tests/ -v
 
 ## Documentation
 
-รายละเอียดเชิงลึก สถาปัตยกรรม, flow, chunking strategy, และแผนพัฒนาต่อ:
-
-**[RAG_OVERVIEW.md](RAG_OVERVIEW.md)**
+- **[RAG_OVERVIEW.md](RAG_OVERVIEW.md)** — สถาปัตยกรรม, flow, chunking strategy, แผนพัฒนาต่อ
+- **[PRODUCTION_GAPS.md](PRODUCTION_GAPS.md)** — สิ่งที่ต้องแก้ก่อนใช้งานจริง, migration plan
 
 ## Tech Stack
 
