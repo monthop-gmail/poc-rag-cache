@@ -5,3 +5,5 @@ python-dotenv
 redis
 fastapi
 uvicorn
+pypdf
+python-multipart

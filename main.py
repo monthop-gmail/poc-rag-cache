@@ -1,26 +1,17 @@
-import os
 import time
 import logging
-import google.generativeai as genai
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from onyx_provider import OnyxCache, RedisCache
-from dotenv import load_dotenv
+from gemini_utils import get_embedding, get_gemini_response
+from rag_routes import router as rag_router
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("SemanticCache")
 
-load_dotenv()
-
-# Configure Gemini
-api_key = os.getenv("GEMINI_API_KEY")
-genai.configure(api_key=api_key)
-
-EMBEDDING_MODEL = "models/text-embedding-004"
-GENERATIVE_MODEL = "gemini-1.5-flash"
-
 app = FastAPI(title="Gemini Semantic Cache API")
+app.include_router(rag_router)
 
 # Global Cache Instances
 redis_cache = RedisCache()
@@ -35,19 +26,6 @@ class QueryResponse(BaseModel):
     cache_level: str
     latency_ms: float
     saved_api_call: bool
-
-def get_embedding(text: str):
-    result = genai.embed_content(
-        model=EMBEDDING_MODEL,
-        content=text,
-        task_type="retrieval_query"
-    )
-    return result['embedding']
-
-def get_gemini_response(prompt: str):
-    model = genai.GenerativeModel(GENERATIVE_MODEL)
-    response = model.generate_content(prompt)
-    return response.text
 
 @app.post("/ask", response_model=QueryResponse)
 async def ask_gemini(request: QueryRequest):
