@@ -1,0 +1,43 @@
+services:
+  app:
+    build: .
+    container_name: gemini_cache_api
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - onyx
+      - redis
+    networks:
+      - cache_network
+
+  onyx:
+    image: onyxai/onyx-server:latest
+    container_name: onyx_vector_store
+    ports:
+      - "8080:8080"
+    volumes:
+      - onyx_data:/var/lib/onyx # เก็บข้อมูล Vector
+    networks:
+      - cache_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis_cache
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data # เก็บข้อมูล Redis
+    networks:
+      - cache_network
+
+volumes:
+  onyx_data:
+  redis_data:
+
+networks:
+  cache_network:
+    driver: bridge

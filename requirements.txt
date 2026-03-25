@@ -1,0 +1,7 @@
+google-generativeai
+onyx-database
+numpy
+python-dotenv
+redis
+fastapi
+uvicorn
