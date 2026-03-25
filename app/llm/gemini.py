@@ -1,24 +1,17 @@
-import os
 import time
 import logging
 import google.generativeai as genai
-from dotenv import load_dotenv
+from app.config import (
+    GEMINI_API_KEY, EMBEDDING_MODEL, GENERATIVE_MODEL,
+    EMBEDDING_BATCH_SIZE, EMBEDDING_RATE_LIMIT_DELAY,
+)
 
-load_dotenv()
+logger = logging.getLogger("LLM.Gemini")
 
-logger = logging.getLogger("GeminiUtils")
-
-# Configure Gemini
-api_key = os.getenv("GEMINI_API_KEY")
-genai.configure(api_key=api_key)
-
-EMBEDDING_MODEL = "models/text-embedding-004"
-GENERATIVE_MODEL = "gemini-1.5-flash"
-EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "20"))
-EMBEDDING_RATE_LIMIT_DELAY = float(os.getenv("EMBEDDING_RATE_LIMIT_DELAY", "0.5"))
+genai.configure(api_key=GEMINI_API_KEY)
 
 
-def get_embedding(text: str):
+def get_embedding(text: str) -> list[float]:
     result = genai.embed_content(
         model=EMBEDDING_MODEL,
         content=text,
@@ -28,15 +21,14 @@ def get_embedding(text: str):
 
 
 def get_embeddings_batch(texts: list[str]) -> list[list[float]]:
-    """
-    Embed a list of texts in batches with rate limiting.
-    Processes EMBEDDING_BATCH_SIZE texts at a time with a delay between batches.
-    """
+    """Embed texts in batches with rate limiting."""
     all_embeddings = []
 
     for i in range(0, len(texts), EMBEDDING_BATCH_SIZE):
         batch = texts[i:i + EMBEDDING_BATCH_SIZE]
-        logger.info(f"Embedding batch {i // EMBEDDING_BATCH_SIZE + 1}/{-(-len(texts) // EMBEDDING_BATCH_SIZE)} ({len(batch)} texts)")
+        batch_num = i // EMBEDDING_BATCH_SIZE + 1
+        total_batches = -(-len(texts) // EMBEDDING_BATCH_SIZE)
+        logger.info(f"Embedding batch {batch_num}/{total_batches} ({len(batch)} texts)")
 
         result = genai.embed_content(
             model=EMBEDDING_MODEL,
@@ -45,14 +37,13 @@ def get_embeddings_batch(texts: list[str]) -> list[list[float]]:
         )
         all_embeddings.extend(result['embedding'])
 
-        # Rate limit: wait between batches (skip after last batch)
         if i + EMBEDDING_BATCH_SIZE < len(texts):
             time.sleep(EMBEDDING_RATE_LIMIT_DELAY)
 
     return all_embeddings
 
 
-def get_gemini_response(prompt: str):
+def get_gemini_response(prompt: str) -> str:
     model = genai.GenerativeModel(GENERATIVE_MODEL)
     response = model.generate_content(prompt)
     return response.text
