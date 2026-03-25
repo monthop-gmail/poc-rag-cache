@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from gemini_utils import get_embedding, get_gemini_response
 from onyx_provider import RedisCache, OnyxCache
 from rag_provider import KnowledgeBase
-from document_processor import extract_text_from_pdf, extract_text_from_txt, chunk_text
+from document_processor import extract_text_from_pdf, extract_text_from_txt, chunk_document
 
 logger = logging.getLogger("RAG")
 
@@ -65,23 +65,23 @@ async def upload_document(file: UploadFile = File(...)):
     if not text.strip():
         raise HTTPException(status_code=400, detail="No text could be extracted from the file")
 
-    # Chunk
-    chunks = chunk_text(text)
-    logger.info(f"Uploading '{filename}': {len(chunks)} chunks")
+    # Chunk with parent-child strategy
+    chunk_results = chunk_document(text)
+    logger.info(f"Uploading '{filename}': {len(chunk_results)} child chunks")
 
-    # Embed all chunks
-    vectors = [get_embedding(chunk) for chunk in chunks]
+    # Embed child chunks (small, precise for search)
+    vectors = [get_embedding(cr.child_text) for cr in chunk_results]
 
     # Ingest into knowledge base
-    knowledge_base.ingest_chunks(chunks, vectors, source_filename=filename)
+    knowledge_base.ingest_chunks(chunk_results, vectors, source_filename=filename)
 
     # Track source in Redis set
     redis_cache.r.sadd("rag:sources", filename) if redis_cache.r else None
 
     return UploadResponse(
         filename=filename,
-        chunks=len(chunks),
-        message=f"Ingested {len(chunks)} chunks from {filename}"
+        chunks=len(chunk_results),
+        message=f"Ingested {len(chunk_results)} chunks from {filename}"
     )
 
 
@@ -121,10 +121,18 @@ async def rag_ask(request: RAGQueryRequest):
     hits = knowledge_base.search(query_vector, limit=request.top_k, threshold=request.rag_threshold)
 
     if hits:
-        # Build augmented prompt
-        context = "\n\n".join([f"[{h['source']}]: {h['text']}" for h in hits])
+        # Build augmented prompt with section context (parent chunks)
+        context_parts = []
+        for h in hits:
+            section = h.get("section", "")
+            source = h["source"]
+            header = f"[{source} | {section}]" if section else f"[{source}]"
+            context_parts.append(f"{header}:\n{h['text']}")
+        context = "\n\n---\n\n".join(context_parts)
         prompt = (
-            f"Based on the following context, answer the question.\n\n"
+            f"Based on the following context, answer the question. "
+            f"Only use information from the provided context. "
+            f"If the context does not contain enough information, say so.\n\n"
             f"Context:\n{context}\n\n"
             f"Question: {user_query}\n"
             f"Answer:"
